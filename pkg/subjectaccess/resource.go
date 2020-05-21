@@ -36,8 +36,22 @@ var (
 )
 
 type Resource struct {
+	Namespace        string
 	GroupVersionKind schema.GroupVersionKind
 	APIResource      metav1.APIResource
+}
+
+func (r Resource) Key() string {
+	key := ""
+	if r.Namespace != "" {
+		key = fmt.Sprintf("%s.", r.Namespace)
+	}
+
+	gvk := r.GroupVersionKind
+	if gvk.Group == "" {
+		return fmt.Sprintf("%s%s.%s", key, gvk.Version, gvk.Kind)
+	}
+	return fmt.Sprintf("%s%s.%s.%s", key, gvk.Group, gvk.Version, gvk.Kind)
 }
 
 // ResourceList creates a list of Resource objects using the Discovery client.
@@ -75,6 +89,7 @@ func ResourceList(_ context.Context, client discovery.DiscoveryInterface, namesp
 			}
 
 			result = append(result, Resource{
+				Namespace: namespace,
 				GroupVersionKind: schema.GroupVersionKind{
 					Version: groupVersion.Version,
 					Group:   groupVersion.Group,
@@ -88,23 +103,22 @@ func ResourceList(_ context.Context, client discovery.DiscoveryInterface, namesp
 	return result, nil
 }
 
-func gvkVerbKey(gvk schema.GroupVersionKind, verb string) string {
-	if gvk.Group == "" {
-		return fmt.Sprintf("%s.%s.%s", gvk.Version, gvk.Kind, verb)
-	}
-	return fmt.Sprintf("%s.%s.%s.%s", gvk.Group, gvk.Version, gvk.Kind, verb)
+func resourceVerbKey(key, verb string) string {
+	return fmt.Sprintf("%s.%s", key, verb)
 }
 
 // ResourceAccess provides a way to check if a given resource and verb are allowed to be performed by
 // the current Kubernetes client.
 type ResourceAccess interface {
-	Allowed(gvk schema.GroupVersionKind, verb string)
+	Allowed(resource Resource, verb string)
+	AllowedAll(resource Resource, verbs []string)
+	AllowedAny(resource Resource, verbs []string)
 	String() string
 }
 
 // NewResourceAccess provides a ResourceAccess object with an access map popluated from issuing SelfSubjectAccessReview
 // requests for the list of resources and verbs provided.
-func NewResourceAccess(ctx context.Context, client authClient.SelfSubjectAccessReviewInterface, namespace string, resources []Resource) *resourceAccess {
+func NewResourceAccess(ctx context.Context, client authClient.SelfSubjectAccessReviewInterface, resources []Resource) *resourceAccess {
 	ra := &resourceAccess{
 		access: sync.Map{},
 	}
@@ -114,7 +128,6 @@ func NewResourceAccess(ctx context.Context, client authClient.SelfSubjectAccessR
 		group.Add(1)
 
 		resource := resource
-		namespace := namespace
 
 		go func(ctx context.Context) {
 			select {
@@ -124,7 +137,7 @@ func NewResourceAccess(ctx context.Context, client authClient.SelfSubjectAccessR
 			}
 
 			if !resource.APIResource.Namespaced {
-				namespace = ""
+				resource.Namespace = ""
 			}
 			apiVerbs := sets.NewString(resource.APIResource.Verbs...)
 
@@ -135,7 +148,7 @@ func NewResourceAccess(ctx context.Context, client authClient.SelfSubjectAccessR
 				default:
 				}
 
-				key := gvkVerbKey(resource.GroupVersionKind, verb)
+				key := resourceVerbKey(resource.Key(), verb)
 
 				if !apiVerbs.Has(verb) {
 					ra.access.Store(key, Unused)
@@ -148,7 +161,7 @@ func NewResourceAccess(ctx context.Context, client authClient.SelfSubjectAccessR
 							Verb:      verb,
 							Resource:  resource.APIResource.Name,
 							Group:     resource.GroupVersionKind.Group,
-							Namespace: namespace,
+							Namespace: resource.Namespace,
 						},
 					},
 				}
@@ -177,8 +190,9 @@ type resourceAccess struct {
 	access sync.Map
 }
 
-func (r *resourceAccess) Allowed(gvk schema.GroupVersionKind, verb string) bool {
-	key := gvkVerbKey(gvk, verb)
+// Allowed checks if the given verb is allowed for the GVK.
+func (r *resourceAccess) Allowed(resource Resource, verb string) bool {
+	key := resourceVerbKey(resource.Key(), verb)
 
 	v, found := r.access.Load(key)
 	if !found {
@@ -193,6 +207,26 @@ func (r *resourceAccess) Allowed(gvk schema.GroupVersionKind, verb string) bool 
 	}
 
 	return statusIntAsBool(s)
+}
+
+// AllowedAll checks if all of the given verbs are allowed for the GVK.
+func (r *resourceAccess) AllowedAll(resource Resource, verbs []string) bool {
+	for _, verb := range verbs {
+		if !r.Allowed(resource, verb) {
+			return false
+		}
+	}
+	return true
+}
+
+// AllowedAny checks if any of the given verbs are allowed for the GVK.
+func (r *resourceAccess) AllowedAny(resource Resource, verbs []string) bool {
+	for _, verb := range verbs {
+		if r.Allowed(resource, verb) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *resourceAccess) String() string {
