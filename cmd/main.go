@@ -41,6 +41,9 @@ func main() {
 		panic(err.Error())
 	}
 
+	config.QPS = 50
+	config.Burst = 250
+
 	// create the clientset
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
@@ -48,8 +51,8 @@ func main() {
 	}
 
 	resources, err := subjectaccess.ResourceList(context.TODO(), clientset.Discovery(), "default")
-    if err != nil {
-    	panic(err.Error())
+	if err != nil {
+		panic(err.Error())
 	}
 
 	fmt.Printf("%+v\n\n", resources)

@@ -8,11 +8,11 @@ import (
 	"sync"
 
 	authv1 "k8s.io/api/authorization/v1"
-	authClient "k8s.io/client-go/kubernetes/typed/authorization/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/discovery"
+	authClient "k8s.io/client-go/kubernetes/typed/authorization/v1"
 )
 
 const (
@@ -166,6 +166,8 @@ func NewResourceAccess(ctx context.Context, client authClient.SelfSubjectAccessR
 					}
 				}
 			}
+
+			group.Done()
 		}(ctx)
 	}
 
