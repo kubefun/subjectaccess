@@ -35,19 +35,9 @@ var (
 	}
 )
 
-// Resource holds an APIGroup and APIResource pair. This is used as a
-// key by ResourceAccess mapping Resource to verbs.
 type Resource struct {
-	APIGroup    string
-	APIResource metav1.APIResource
-}
-
-// String provides a serializable string representation of a Resource
-func (r Resource) String() string {
-	if r.APIGroup == "" {
-		return r.APIResource.Name
-	}
-	return fmt.Sprintf("%s.%s", r.APIGroup, r.APIResource.Name)
+	GroupVersionKind schema.GroupVersionKind
+	APIResource      metav1.APIResource
 }
 
 // ResourceList creates a list of Resource objects using the Discovery client.
@@ -85,7 +75,11 @@ func ResourceList(_ context.Context, client discovery.DiscoveryInterface, namesp
 			}
 
 			result = append(result, Resource{
-				APIGroup:    groupVersion.Group,
+				GroupVersionKind: schema.GroupVersionKind{
+					Version: groupVersion.Version,
+					Group:   groupVersion.Group,
+					Kind:    r.Kind,
+				},
 				APIResource: r,
 			})
 		}
@@ -94,14 +88,17 @@ func ResourceList(_ context.Context, client discovery.DiscoveryInterface, namesp
 	return result, nil
 }
 
-func resourceVerbKey(resource Resource, verb string) string {
-	return fmt.Sprintf("%s.%s", resource, verb)
+func gvkVerbKey(gvk schema.GroupVersionKind, verb string) string {
+	if gvk.Group == "" {
+		return fmt.Sprintf("%s.%s.%s", gvk.Version, gvk.Kind, verb)
+	}
+	return fmt.Sprintf("%s.%s.%s.%s", gvk.Group, gvk.Version, gvk.Kind, verb)
 }
 
 // ResourceAccess provides a way to check if a given resource and verb are allowed to be performed by
 // the current Kubernetes client.
 type ResourceAccess interface {
-	Allowed(resource Resource, verb string)
+	Allowed(gvk schema.GroupVersionKind, verb string)
 	String() string
 }
 
@@ -138,7 +135,7 @@ func NewResourceAccess(ctx context.Context, client authClient.SelfSubjectAccessR
 				default:
 				}
 
-				key := resourceVerbKey(resource, verb)
+				key := gvkVerbKey(resource.GroupVersionKind, verb)
 
 				if !apiVerbs.Has(verb) {
 					ra.access.Store(key, Unused)
@@ -150,7 +147,7 @@ func NewResourceAccess(ctx context.Context, client authClient.SelfSubjectAccessR
 						ResourceAttributes: &authv1.ResourceAttributes{
 							Verb:      verb,
 							Resource:  resource.APIResource.Name,
-							Group:     resource.APIGroup,
+							Group:     resource.GroupVersionKind.Group,
 							Namespace: namespace,
 						},
 					},
@@ -180,12 +177,12 @@ type resourceAccess struct {
 	access sync.Map
 }
 
-func (r *resourceAccess) Allowed(resource Resource, verb string) bool {
-	key := resourceVerbKey(resource, verb)
+func (r *resourceAccess) Allowed(gvk schema.GroupVersionKind, verb string) bool {
+	key := gvkVerbKey(gvk, verb)
 
 	v, found := r.access.Load(key)
 	if !found {
-		log.Printf("verb %s not found for %s", verb, resource)
+		log.Printf("not found: %s", key)
 		return false
 	}
 

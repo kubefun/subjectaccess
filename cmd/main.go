@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 
@@ -55,10 +56,15 @@ func main() {
 		panic(err.Error())
 	}
 
-	fmt.Printf("%+v\n\n", resources)
-
 	resourceAccess := subjectaccess.NewResourceAccess(context.TODO(), clientset.AuthorizationV1().SelfSubjectAccessReviews(), "default", resources)
-	fmt.Println(resourceAccess)
+
+	pod := schema.GroupVersionKind{
+		Group:   "",
+		Version: "v1",
+		Kind:    "Pod",
+	}
+
+	fmt.Println("Can get v1/Pod?", resourceAccess.Allowed(pod, "get"))
 }
 
 func homeDir() string {
