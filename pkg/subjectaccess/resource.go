@@ -129,12 +129,8 @@ func NewResourceAccess(ctx context.Context, client authClient.SelfSubjectAccessR
 
 		resource := resource
 
-		go func(ctx context.Context) {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
+		go func() {
+			defer group.Done()
 
 			if !resource.APIResource.Namespaced {
 				resource.Namespace = ""
@@ -176,9 +172,7 @@ func NewResourceAccess(ctx context.Context, client authClient.SelfSubjectAccessR
 					}
 				}
 			}
-
-			group.Done()
-		}(ctx)
+		}()
 	}
 
 	group.Wait()

@@ -19,9 +19,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/wwitzel3/subjectaccess/pkg/subjectaccess"
@@ -42,8 +44,8 @@ func main() {
 		panic(err.Error())
 	}
 
-	config.QPS = 50
-	config.Burst = 250
+	config.QPS = 500
+	config.Burst = 1000
 
 	// create the clientset
 	clientset, err := kubernetes.NewForConfig(config)
@@ -51,10 +53,21 @@ func main() {
 		panic(err.Error())
 	}
 
+	startDefault := time.Now()
 	resources, err := subjectaccess.ResourceList(context.TODO(), clientset.Discovery(), "default")
 	if err != nil {
 		panic(err.Error())
 	}
+	elapsedDefault := time.Since(startDefault)
+	fmt.Printf("Took (ns: default)): %s\n", elapsedDefault)
+
+	startCluster := time.Now()
+	_, err = subjectaccess.ResourceList(context.TODO(), clientset.Discovery(), "")
+	if err != nil {
+		panic(err.Error())
+	}
+	elapsedCluster := time.Since(startCluster)
+	fmt.Printf("Took (cluster)): %s\n", elapsedCluster)
 
 	// Namespace default
 	resourceAccess := subjectaccess.NewResourceAccess(context.TODO(), clientset.AuthorizationV1().SelfSubjectAccessReviews(), resources)
