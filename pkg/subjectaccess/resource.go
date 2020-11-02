@@ -110,11 +110,13 @@ func resourceVerbKey(key, verb string) string {
 // ResourceAccess provides a way to check if a given resource and verb are allowed to be performed by
 // the current Kubernetes client.
 type ResourceAccess interface {
-	Allowed(resource Resource, verb string)
-	AllowedAll(resource Resource, verbs []string)
-	AllowedAny(resource Resource, verbs []string)
+	Allowed(resource Resource, verb string) bool
+	AllowedAll(resource Resource, verbs []string) bool
+	AllowedAny(resource Resource, verbs []string) bool
 	String() string
 }
+
+var _ ResourceAccess = (*resourceAccess)(nil)
 
 // NewResourceAccess provides a ResourceAccess object with an access map popluated from issuing SelfSubjectAccessReview
 // requests for the list of resources and verbs provided.
